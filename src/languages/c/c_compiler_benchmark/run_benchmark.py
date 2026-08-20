@@ -13,6 +13,7 @@ parser.add_argument("--src_dir", default="./data/src")
 parser.add_argument("--threads", type=int, default=1)
 parser.add_argument("--iters", type=int, default=1)
 args = parser.parse_args()
+#compiler_bin = "/usr/bin/clang-14" if args.compiler == "clang" else "gcc"
 
 # Collect all .c source files
 src_files = [
@@ -28,10 +29,10 @@ def compile_copy(copy_id, iters, warmup=1):
     start = time.time()
     try:
         for _ in range(warmup):
-            cmd = [args.compiler, f"-{args.opt}", "-pthread"] + src_files + ["-o", bin_file, "-lm"]
+            cmd = [compiler_bin, f"-{args.opt}", "-pthread"] + src_files + ["-o", bin_file, "-lm"]
             subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         for _ in range(iters):
-            cmd = [args.compiler, f"-{args.opt}", "-pthread"] + src_files + ["-o", bin_file, "-lm"]
+            cmd = [compiler_bin, f"-{args.opt}", "-pthread"] + src_files + ["-o", bin_file, "-lm"]
             subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     finally:
         if os.path.exists(bin_file):
@@ -39,7 +40,7 @@ def compile_copy(copy_id, iters, warmup=1):
     end = time.time()
     return end - start
 
-print(f"[INFO] Compiler: {args.compiler} -{args.opt}")
+print(f"[INFO] Compiler: {compiler_bin} -{args.opt}")
 print(f"[INFO] Threads: {args.threads}, Iters: {args.iters}, Sources: {len(src_files)}")
 
 print("[INFO] Starting benchmark ...")

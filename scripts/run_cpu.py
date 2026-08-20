@@ -9,7 +9,7 @@ from pathlib import Path
 from datetime import datetime
 
 BENCHMARKS_FILE = "configs/benchmarks_index.yaml"
-RESULT_PATTERN = re.compile(r"\[RESULT\]\s+Total elapsed time:\s+([0-9.]+)\s*s")
+RESULT_PATTERN = re.compile(r"\[RESULT\]\s+Total elapsed time:\s*([0-9]+(?:\.[0-9]+)?)\s*(?:s|sec|seconds)?\s*$", re.IGNORECASE)
 
 log_file = None
 VERBOSE = False  # global flag for optional console output
