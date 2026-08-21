@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+import argparse
 import subprocess
 import sys
 from datetime import datetime
@@ -353,6 +355,50 @@ pairs = [
 ]
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Run benchmark presets or execute a JSON config replay."
+    )
+    parser.add_argument(
+        "--config",
+        help=(
+            "Path to JSON config file with fields: tag, setup_env, workloads, params. "
+            "Example: test/momentum_filter_config/round6.json"
+        ),
+    )
+    parser.add_argument(
+        "--tag",
+        help="Override tag from config JSON (or default preset tag).",
+    )
+    return parser.parse_args()
+
+
+def load_config(config_path: str):
+    path = Path(config_path)
+    if not path.is_absolute():
+        path = PROJECT_ROOT / path
+    path = path.resolve()
+
+    if not path.exists():
+        raise FileNotFoundError(f"Config file not found: {path}")
+
+    with open(path, "r", encoding="utf-8") as f:
+        cfg = json.load(f)
+
+    workloads = cfg.get("workloads", [])
+    params = cfg.get("params", [])
+    setup_env = bool(cfg.get("setup_env", False))
+    tag = cfg.get("tag", "config_run")
+
+    if not isinstance(workloads, list) or not all(isinstance(x, str) for x in workloads):
+        raise ValueError("Config 'workloads' must be a list of strings")
+    if not isinstance(params, list) or not all(isinstance(x, str) for x in params):
+        raise ValueError("Config 'params' must be a list of strings")
+
+    return path, tag, setup_env, workloads, params
+
+
+
 def run_cmd(cmd):
     """Run a command and return its output as list of lines."""
     try:
@@ -455,6 +501,8 @@ def run_workloads_set(tag: str, workloads: list[str], params: list[str], setup_e
 
 
 def main():
+    args = parse_args()
+
     print(f"[INFO] Starting test batch from {PROJECT_ROOT}")
     print(f"[INFO] Logs → {LOG_DIR}")
     print(f"[INFO] Results → {RES_DIR}")
@@ -462,10 +510,23 @@ def main():
 
     write_system_info_json(SYSTEM_INFO_FILE)
 
+    if args.config:
+        config_path, cfg_tag, setup_env, workloads, params = load_config(args.config)
+        tag = args.tag if args.tag else cfg_tag
+
+        print(f"[INFO] Running config mode: {config_path}")
+        print(f"[INFO] Tag: {tag}")
+        print(f"[INFO] Workloads: {len(workloads)}")
+        print(f"[INFO] Params: {len(params)}")
+
+        run_workloads_set(tag, workloads, params, setup_env)
+        print("\n[INFO] Config replay finished.")
+        return
+
     for workloads_set_name, param_set_name, setup_env in pairs:
         workloads = workloads_sets[workloads_set_name]
         params = param_sets[param_set_name]
-        tag = f"{param_set_name}"
+        tag = args.tag if args.tag else f"{param_set_name}"
         run_workloads_set(tag, workloads, params, setup_env)
 
     print("\n[INFO] All tests finished.")
