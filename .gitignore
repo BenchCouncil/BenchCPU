@@ -27,3 +27,5 @@ bb.out.**
 c.txt
 results/
 **/zf
+!**/configs/momentum_filter_rounds_1_16/round1.json
+**/configs
