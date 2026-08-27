@@ -30,6 +30,4 @@ results/
 **/configs
 !configs/
 configs/*
-!configs/momentum_filter_rounds_1_16/
-configs/momentum_filter_rounds_1_16/*
-!configs/momentum_filter_rounds_1_16/benchcpu-config-2026-08.json
+!configs/benchcpu-config-2026-08.json
