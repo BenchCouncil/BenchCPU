@@ -90,7 +90,7 @@ python3 scripts/run_cpu.py --workloads numpy_benchmark.matmul ffmpeg_benchmark.f
   --setup-env --set-param numpy_benchmark.matmul.workload.size=2048 --verbose
 
 # CPU Bench full preset suite
-python3 run_v_0_0_1.py --config configs/momentum_filter_rounds_1_16/benchcpu-config-2026-08.json --tag tag_name
+python3 run_v_0_0_1.py --config configs/benchcpu-config-2026-08.json --tag tag_name
 
 #python3 test/lab1_momentum.py
 
