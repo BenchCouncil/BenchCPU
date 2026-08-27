@@ -92,6 +92,8 @@ python3 scripts/run_cpu.py --workloads numpy_benchmark.matmul ffmpeg_benchmark.f
 # CPU Bench full preset suite
 python3 run_v_0_0_1.py --config configs/momentum_filter_rounds_1_16/benchcpu-config-2026-08.json --tag tag_name
 
+#python3 test/lab1_momentum.py
+
 # Clean artifacts (preview then execute)
 python3 scripts/clean_artifacts.py --all --verbose
 ```
