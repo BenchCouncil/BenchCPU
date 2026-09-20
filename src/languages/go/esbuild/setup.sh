@@ -9,7 +9,7 @@ if [ -n "$ESBUILD_BIN" ]; then
         return 1 2>/dev/null || true
     fi
     echo "Using user-provided esbuild binary: $ESBUILD_BIN"
-    return 0 2>/dev/null || true
+    exit 0
 fi
 
 mkdir -p "$INSTALL_DIR"
@@ -18,7 +18,7 @@ if [ -x "$INSTALL_DIR/esbuild" ]; then
     echo "esbuild binary already exists at $INSTALL_DIR/esbuild"
     export ESBUILD_BIN="$(pwd)/bin/esbuild"
     echo "ESBUILD_BIN has been set for this shell session."
-    return 0 2>/dev/null || true
+    exit 0
 fi
 
 echo "Downloading esbuild..."

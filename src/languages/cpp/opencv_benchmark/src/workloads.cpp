@@ -138,7 +138,7 @@ void Workloads::canny(const cv::Mat& img) {
 // Optical Flow (Farneback Dense)
 // ===========================================================
 void Workloads::opticalFlow(const cv::Mat& img) {
-    static cv::Mat prevGray;
+    static thread_local cv::Mat prevGray;
     cv::Mat gray;
     cv::cvtColor(img, gray, cv::COLOR_BGR2GRAY);
 

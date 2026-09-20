@@ -70,7 +70,7 @@ Minimum versions:
 ```bash
 # Environment setup
 sudo apt-get update
-sudo apt-get install -y python3 python3-venv python3-pip gcc g++ clang openjdk-17-jdk
+sudo apt-get install -y python3 python3-venv python3-pip gcc g++ clang openjdk-17-jdk cmake
 pip3 install pyyaml
 
 # Go (x86_64) – adapt for ARM64

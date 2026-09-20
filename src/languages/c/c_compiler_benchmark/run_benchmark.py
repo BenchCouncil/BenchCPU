@@ -13,7 +13,7 @@ parser.add_argument("--src_dir", default="./data/src")
 parser.add_argument("--threads", type=int, default=1)
 parser.add_argument("--iters", type=int, default=1)
 args = parser.parse_args()
-#compiler_bin = "/usr/bin/clang-14" if args.compiler == "clang" else "gcc"
+compiler_bin = "/usr/bin/clang-14" if args.compiler == "clang" else "gcc"
 
 # Collect all .c source files
 src_files = [

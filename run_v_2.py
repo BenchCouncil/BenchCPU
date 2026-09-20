@@ -385,17 +385,49 @@ def load_config(config_path: str):
     with open(path, "r", encoding="utf-8") as f:
         cfg = json.load(f)
 
+    tag = cfg.get("tag", path.stem)
+    setup_env = bool(cfg.get("setup_env", False))
+
+    if "workload_configurations" in cfg:
+        entries = cfg["workload_configurations"]
+        if not isinstance(entries, list) or not entries:
+            raise ValueError("Config 'workload_configurations' must be a non-empty list")
+
+        normalized = []
+        for entry in entries:
+            workload = entry.get("workload")
+            configurations = entry.get("configurations")
+            if not isinstance(workload, str) or not workload:
+                raise ValueError("Each workload configuration needs a string 'workload'")
+            if not isinstance(configurations, list) or not configurations:
+                raise ValueError("Each workload needs a non-empty 'configurations' list")
+            if not all(
+                isinstance(params, list) and all(isinstance(param, str) for param in params)
+                for params in configurations
+            ):
+                raise ValueError("Each grid configuration must be a list of parameter strings")
+            normalized.append((workload, configurations))
+
+        jobs = []
+        for slot in range(max(len(configurations) for _, configurations in normalized)):
+            workloads = []
+            params = []
+            for workload, configurations in normalized:
+                if slot < len(configurations):
+                    workloads.append(workload)
+                    params.extend(configurations[slot])
+            jobs.append(("{}_{}".format(tag, slot + 1), setup_env, workloads, params))
+        return path, tag, jobs
+
     workloads = cfg.get("workloads", [])
     params = cfg.get("params", [])
-    setup_env = bool(cfg.get("setup_env", False))
-    tag = cfg.get("tag", "config_run")
 
     if not isinstance(workloads, list) or not all(isinstance(x, str) for x in workloads):
         raise ValueError("Config 'workloads' must be a list of strings")
     if not isinstance(params, list) or not all(isinstance(x, str) for x in params):
         raise ValueError("Config 'params' must be a list of strings")
 
-    return path, tag, setup_env, workloads, params
+    return path, tag, [(tag, setup_env, workloads, params)]
 
 
 
@@ -542,15 +574,18 @@ def main():
     write_system_info_json(SYSTEM_INFO_FILE)
 
     if args.config:
-        config_path, cfg_tag, setup_env, workloads, params = load_config(args.config)
-        tag = args.tag if args.tag else cfg_tag
+        config_path, cfg_tag, jobs = load_config(args.config)
+        tag_prefix = args.tag if args.tag else cfg_tag
 
         print(f"[INFO] Running config mode: {config_path}")
-        print(f"[INFO] Tag: {tag}")
-        print(f"[INFO] Workloads: {len(workloads)}")
-        print(f"[INFO] Params: {len(params)}")
+        print(f"[INFO] Config runs: {len(jobs)}")
 
-        run_workloads_set(tag, workloads, params, setup_env)
+        for job_tag, setup_env, workloads, params in jobs:
+            tag = job_tag if tag_prefix == cfg_tag else job_tag.replace(cfg_tag, tag_prefix, 1)
+            print(f"[INFO] Tag: {tag}")
+            print(f"[INFO] Workloads: {len(workloads)}")
+            print(f"[INFO] Params: {len(params)}")
+            run_workloads_set(tag, workloads, params, setup_env)
         print("\n[INFO] Config replay finished.")
         return
 

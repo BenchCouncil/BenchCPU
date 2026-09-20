@@ -5,7 +5,7 @@ Copyright Callum and Tony Garnock-Jones, 2008.
 This file may be freely redistributed under the MIT license,
 http://www.opensource.org/licenses/mit-license.php
 
-From http://www.lshift.net/blog/2008/10/29/toy-raytracer-in-python
+From http://www.lshift.net/blog/2008/10/29/toy-raytracer-in-python, Status: link is no longer active
 """
 
 import array

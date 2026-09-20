@@ -12,4 +12,8 @@ Apple Accelerate
 
 这些库默认会使用所有可用 CPU 核心，而不仅仅是单线程。
 
-因此测试单核性能时固定了BLAS线程数为 1 
+因此测试单核性能时固定了BLAS线程数为 1
+
+### Third-Party License
+
+This benchmark uses NumPy as an external dependency. NumPy is licensed under the BSD 3-Clause License.
