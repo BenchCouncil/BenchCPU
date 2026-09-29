@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 import argparse
+import csv
+import hashlib
 import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
 import json
+import re
 import shutil
 
 ROOT = Path(__file__).resolve().parent              
@@ -388,6 +391,30 @@ def load_config(config_path: str):
     tag = cfg.get("tag", path.stem)
     setup_env = bool(cfg.get("setup_env", False))
 
+    if "rounds" in cfg:
+        workload = cfg.get("workload")
+        rounds = cfg["rounds"]
+        if not isinstance(workload, str) or not workload:
+            raise ValueError("Config 'workload' must be a non-empty string")
+        if not isinstance(rounds, dict) or not rounds:
+            raise ValueError("Config 'rounds' must be a non-empty object")
+
+        jobs = []
+        for round_name, configuration in rounds.items():
+            if not isinstance(round_name, str) or not isinstance(configuration, dict):
+                raise ValueError("Each round needs a string name and an object configuration")
+
+            params = []
+            for target in ("data", "workload"):
+                target_params = configuration.get(target, {})
+                if not isinstance(target_params, dict):
+                    raise ValueError(f"Round '{round_name}' has invalid '{target}' parameters")
+                for name, value in target_params.items():
+                    params.append(f"{workload}.{target}.{name}={value}")
+
+            jobs.append((f"{tag}_{round_name}", setup_env, [workload], params))
+        return path, tag, jobs
+
     if "workload_configurations" in cfg:
         entries = cfg["workload_configurations"]
         if not isinstance(entries, list) or not entries:
@@ -419,11 +446,11 @@ def load_config(config_path: str):
             jobs.append(("{}_{}".format(tag, slot + 1), setup_env, workloads, params))
         return path, tag, jobs
 
-    workloads = cfg.get("workloads", [])
+    workloads = cfg.get("workloads")
     params = cfg.get("params", [])
 
-    if not isinstance(workloads, list) or not all(isinstance(x, str) for x in workloads):
-        raise ValueError("Config 'workloads' must be a list of strings")
+    if not isinstance(workloads, list) or not workloads or not all(isinstance(x, str) and x for x in workloads):
+        raise ValueError("Config 'workloads' must be a non-empty list of strings")
     if not isinstance(params, list) or not all(isinstance(x, str) for x in params):
         raise ValueError("Config 'params' must be a list of strings")
 
@@ -448,6 +475,47 @@ def parse_key_value_lines(lines):
             data[k.strip()] = v.strip()
     return data
 
+def collect_memory_hardware():
+    devices = []
+    current = None
+    for line in run_cmd("dmidecode -t memory"):
+        stripped = line.strip()
+        if stripped == "Memory Device":
+            if current and current.get("Size") != "No Module Installed":
+                devices.append(current)
+            current = {}
+        elif current is not None and ":" in stripped:
+            key, value = stripped.split(":", 1)
+            current[key.strip()] = value.strip()
+    if current and current.get("Size") != "No Module Installed":
+        devices.append(current)
+
+    configured_speed = None
+    if devices:
+        for key in ("Configured Memory Speed", "Speed"):
+            match = re.search(r"(\d+)\s*MT/s", devices[0].get(key, ""))
+            if match:
+                configured_speed = int(match.group(1))
+                break
+
+    return {
+        "installed_dimm_count": len(devices),
+        "devices": devices,
+        "configured_speed_mt_s": configured_speed,
+        "theoretical_bandwidth_gb_s_per_64bit_channel": (
+            configured_speed * 8 / 1000 if configured_speed else None
+        ),
+    }
+
+def parse_os_release(lines):
+    values = {}
+    for line in lines:
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip()] = value.strip().strip('"')
+    return values
+
 def collect_system_info():
     sysinfo = {}
 
@@ -456,9 +524,10 @@ def collect_system_info():
 
     meminfo_lines = run_cmd("cat /proc/meminfo")
     sysinfo["memory"] = parse_key_value_lines(meminfo_lines)
+    sysinfo["memory_hardware"] = collect_memory_hardware()
 
     osrelease_lines = run_cmd("cat /etc/os-release")
-    sysinfo["os"] = parse_key_value_lines(osrelease_lines)
+    sysinfo["os"] = parse_os_release(osrelease_lines)
 
     sysinfo["uname"] = run_cmd("uname -a")
 
@@ -525,10 +594,52 @@ def write_system_info_json(output_path):
     return write_unique_snapshot(output_path.parent, collect_system_info, file_prefix=output_path.stem)
 
 
-def run_workloads_set(tag: str, workloads: list[str], params: list[str], setup_env: bool = False):
+def find_resume_result_file(tag: str):
+    candidates = sorted(RES_DIR.glob(f"results_{tag}_*.csv"), key=lambda path: path.stat().st_mtime, reverse=True)
+    for candidate in candidates:
+        try:
+            with candidate.open("r", newline="", encoding="utf-8") as handle:
+                header = next(csv.reader(handle), [])
+            if "config_signature" in header:
+                return candidate
+        except (OSError, csv.Error):
+            continue
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    result_file = RES_DIR / f"results_{tag}_{timestamp}.csv"
-    log_file = LOG_DIR / f"logs_{tag}_{timestamp}.log"
+    return RES_DIR / f"results_{tag}_{timestamp}.csv"
+
+
+def get_completed_configurations(result_file: Path):
+    completed = set()
+    if not result_file.exists() or result_file.stat().st_size == 0:
+        return completed
+    try:
+        with result_file.open("r", newline="", encoding="utf-8") as handle:
+            for row in csv.DictReader(handle):
+                benchmark = row.get("benchmark_name")
+                workload = row.get("workload_name")
+                signature = row.get("config_signature")
+                if benchmark and workload and signature:
+                    completed.add((f"{benchmark}.{workload}", signature))
+    except (OSError, csv.Error):
+        pass
+    return completed
+
+
+def configuration_signature(job_tag: str, params: list[str]):
+    payload = json.dumps({"job": job_tag, "params": sorted(params)}, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def run_workloads_set(tag: str, workloads: list[str], params: list[str], result_file: Path,
+                      config_signature: str, completed: set[tuple[str, str]], setup_env: bool = False):
+    log_file = LOG_DIR / f"logs_{tag}_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.log"
+    remaining_workloads = [
+        workload for workload in workloads
+        if (workload, config_signature) not in completed
+    ]
+    if not remaining_workloads:
+        print(f"[INFO] {tag} already completed; skipping.")
+        return
 
     base_cmd = [
         sys.executable,
@@ -536,20 +647,23 @@ def run_workloads_set(tag: str, workloads: list[str], params: list[str], setup_e
         "--verbose",
         "--out", str(result_file),
         "--log", str(log_file),
+        "--append",
+        "--config-signature", config_signature,
         # "--use-perf"
     ]
 
     if setup_env:
         base_cmd.append("--setup-env")
 
-    if workloads:
-        base_cmd.extend(["--workloads"] + workloads)
+    if remaining_workloads:
+        base_cmd.extend(["--workloads"] + remaining_workloads)
 
     for p in params:
         base_cmd.extend(["--set-param", p])
 
 
     print(f"\n=== Running config: {tag} ===")
+    print(f"Workloads remaining: {len(remaining_workloads)}")
     print("Command:", " ".join(base_cmd))
     print(f"Working directory: {PROJECT_ROOT}")
 
@@ -576,16 +690,21 @@ def main():
     if args.config:
         config_path, cfg_tag, jobs = load_config(args.config)
         tag_prefix = args.tag if args.tag else cfg_tag
+        result_file = find_resume_result_file(tag_prefix)
+        completed = get_completed_configurations(result_file)
 
         print(f"[INFO] Running config mode: {config_path}")
         print(f"[INFO] Config runs: {len(jobs)}")
+        print(f"[INFO] Result CSV: {result_file}")
 
         for job_tag, setup_env, workloads, params in jobs:
             tag = job_tag if tag_prefix == cfg_tag else job_tag.replace(cfg_tag, tag_prefix, 1)
+            signature = configuration_signature(tag, params)
             print(f"[INFO] Tag: {tag}")
             print(f"[INFO] Workloads: {len(workloads)}")
             print(f"[INFO] Params: {len(params)}")
-            run_workloads_set(tag, workloads, params, setup_env)
+            run_workloads_set(tag, workloads, params, result_file, signature, completed, setup_env)
+            completed = get_completed_configurations(result_file)
         print("\n[INFO] Config replay finished.")
         return
 
@@ -593,7 +712,10 @@ def main():
         workloads = workloads_sets[workloads_set_name]
         params = param_sets[param_set_name]
         tag = args.tag if args.tag else f"{param_set_name}"
-        run_workloads_set(tag, workloads, params, setup_env)
+        result_file = find_resume_result_file(tag)
+        completed = get_completed_configurations(result_file)
+        signature = configuration_signature(tag, params)
+        run_workloads_set(tag, workloads, params, result_file, signature, completed, setup_env)
 
     print("\n[INFO] All tests finished.")
 

@@ -5,6 +5,7 @@ import subprocess
 import csv
 import sys
 import re
+import shutil
 from pathlib import Path
 from datetime import datetime
 
@@ -15,6 +16,7 @@ log_file = None
 VERBOSE = False  # global flag for optional console output
 USE_PERF = False
 log_path = None  # global to access in run_workload()
+CONFIG_SIGNATURE = ""
 
 # ============================================================
 # Perf configuration
@@ -217,6 +219,44 @@ def apply_param_overrides(base_cmd, overrides_dict, param_meta, bench, wl, targe
 
     return base_cmd, " ".join(param_parts)
 
+def _default_parameter(parameters, name):
+    value = parameters.get(name) if isinstance(parameters, dict) else None
+    return value.get("default") if isinstance(value, dict) else value
+
+def resolve_build_metadata(benchmark_name, benchmark_path, workload_name, overrides):
+    metadata = load_yaml(benchmark_path / "metadata.yaml")
+    setup_info = metadata.get("setup") or {}
+    setup_parameters = setup_info.get("parameters", {})
+    setup_key = (benchmark_name, "_", "setup")
+    workload_key = (benchmark_name, workload_name, "workload")
+    setup_overrides = overrides.get(setup_key, {})
+    workload_overrides = overrides.get(workload_key, {})
+
+    workload = next(
+        (item for item in metadata.get("workloads", []) if item.get("name") == workload_name),
+        {},
+    )
+    workload_command = workload.get("command", "")
+    compiler = setup_overrides.get("compiler", _default_parameter(setup_parameters, "compiler"))
+    if not compiler:
+        compiler_match = re.search(r"(?:^|\s)--compiler\s+([^\s]+)", workload_command)
+        compiler = compiler_match.group(1) if compiler_match else None
+    setup_opt = setup_overrides.get("opt", _default_parameter(setup_parameters, "opt"))
+    workload_opt = workload_overrides.get("opt")
+    optimization_options = str(setup_opt or workload_opt or "unknown")
+    compiler = str(compiler) if compiler else "unknown"
+
+    compiler_command = shutil.which(compiler) or compiler
+    try:
+        version = subprocess.check_output(
+            f"{compiler_command} --version", shell=True, text=True,
+            stderr=subprocess.STDOUT, timeout=5
+        ).splitlines()[0]
+    except Exception:
+        version = "unknown"
+
+    return compiler, version, optimization_options
+
 
 # ============================================================
 # Workload execution
@@ -282,7 +322,14 @@ def run_workload(benchmark_name, benchmark_path: Path, csv_writer, csv_file, ove
             log(f"[*] Running benchmark for {wl_name} with cmd: {cmd_to_run}")
             elapsed_time = run_command(cmd_to_run, cwd=benchmark_path, expect_result=True)
 
-            csv_writer.writerow([benchmark_name, wl_name, elapsed_time, param_str])
+            compiler, compiler_version, optimization_options = resolve_build_metadata(
+                benchmark_name, benchmark_path, wl_name, overrides
+            )
+            csv_writer.writerow([
+                benchmark_name, wl_name, elapsed_time, param_str,
+                f"{compiler} | {compiler_version}", optimization_options,
+                CONFIG_SIGNATURE,
+            ])
             csv_file.flush()
             log(f"[OK] {benchmark_name}/{wl_name}: {elapsed_time:.4f} s")
         except Exception as e:
@@ -294,7 +341,7 @@ def run_workload(benchmark_name, benchmark_path: Path, csv_writer, csv_file, ove
 # Main
 # ============================================================
 def main():
-    global log_file, VERBOSE, failed_workloads, USE_PERF, log_path
+    global log_file, VERBOSE, failed_workloads, USE_PERF, log_path, CONFIG_SIGNATURE
     failed_workloads = []
     missing_items = []
 
@@ -307,10 +354,13 @@ def main():
     parser.add_argument("--setup-env", action="store_true", help="Run setup commands before execution.")
     parser.add_argument("--verbose", action="store_true", help="Print logs to console as well.")
     parser.add_argument("--use-perf", action="store_true", help="Enable perf stat measurement for workloads.")
+    parser.add_argument("--append", action="store_true", help="Append to an existing CSV instead of overwriting it.")
+    parser.add_argument("--config-signature", default="", help="Signature identifying the configuration being run.")
     args = parser.parse_args()
 
     VERBOSE = args.verbose
     USE_PERF = args.use_perf
+    CONFIG_SIGNATURE = args.config_signature
 
     # ======= log init =======
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -384,9 +434,14 @@ def main():
     # ============================================================
     # Run phase
     # ============================================================
-    with open(result_file, "w", newline="", encoding="utf-8") as f:
+    append_mode = args.append and Path(result_file).exists() and Path(result_file).stat().st_size > 0
+    with open(result_file, "a" if append_mode else "w", newline="", encoding="utf-8") as f:
         csv_writer = csv.writer(f)
-        csv_writer.writerow(["benchmark_name", "workload_name", "elapsed_time(s)", "param_overrides"])
+        if not append_mode:
+            csv_writer.writerow([
+                "benchmark_name", "workload_name", "elapsed_time(s)", "param_overrides",
+                "compiler_version", "optimization_options", "config_signature",
+            ])
         f.flush()
 
         for bench_name, wl_names in workload_map.items():

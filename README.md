@@ -85,14 +85,16 @@ sudo apt-get install -y linux-perf || sudo apt-get install -y perf
 git clone https://github.com/fzhang1991/BenchCPU.git && cd cpu_bench
 #https://github.com/YukiCheZ/cpu_bench.git
 
+
 # Setup and run a pair of workloads with override param
 python3 scripts/run_cpu.py --workloads numpy_benchmark.matmul ffmpeg_benchmark.ffmpeg \
   --setup-env --set-param numpy_benchmark.matmul.workload.size=2048 --verbose
 
+# Setup all benchmarks
+python3 scripts/setup_env.py --all --verbose
+
 # CPU Bench full preset suite
 python3 run_v_0_0_1.py --config configs/benchcpu-config-2026-08.json --tag tag_name
-
-#python3 test/lab1_momentum.py
 
 # Clean artifacts (preview then execute)
 python3 scripts/clean_artifacts.py --all --verbose

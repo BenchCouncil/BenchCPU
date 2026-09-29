@@ -24,7 +24,7 @@ workloads:
       Generate a dense, diagonally dominant square matrix and a corresponding right-hand side vector.
       Execute the LAPACK `dgesv` routine to compute the solution to the system of linear equations using LU factorization.
       Measure the computational throughput of the solver to evaluate CPU floating-point performance in linear algebra tasks.
-    command: ./bin/lapack_benchmark --mode solve
+    command: env OPENBLAS_NUM_THREADS=1 ./bin/lapack_benchmark --mode solve
     parameters:
       size:
         description: Size of the matrix (number of rows/columns)
@@ -49,7 +49,7 @@ workloads:
       Construct a random real symmetric matrix to serve as input for spectral analysis.
       Perform the LAPACK `dsyev` routine to calculate all eigenvalues and eigenvectors using iterative numerical algorithms.
       Assess the CPU's capability in handling symmetric matrix decompositions and floating-point intensive spectral computations.
-    command: ./bin/lapack_benchmark --mode eigen
+    command: env OPENBLAS_NUM_THREADS=1 ./bin/lapack_benchmark --mode eigen
     parameters:
       size:
         description: Size of the matrix (number of rows/columns)
@@ -74,7 +74,7 @@ workloads:
       Initialize a general dense matrix with random floating-point values.
       Execute the LAPACK `dgesvd` routine to factorize the matrix into left and right singular vectors and singular values.
       Evaluate the performance of computationally intensive matrix factorization algorithms and memory access patterns during SVD computation.
-    command: ./bin/lapack_benchmark --mode svd
+    command: env OPENBLAS_NUM_THREADS=1 ./bin/lapack_benchmark --mode svd
     parameters:
       size:
         description: Size of the matrix (number of rows/columns)

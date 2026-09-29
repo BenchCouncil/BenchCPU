@@ -6,6 +6,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 import json
+import re
 import shutil
 
 ROOT = Path(__file__).resolve().parent              
@@ -416,6 +417,47 @@ def parse_key_value_lines(lines):
             data[k.strip()] = v.strip()
     return data
 
+def collect_memory_hardware():
+    devices = []
+    current = None
+    for line in run_cmd("dmidecode -t memory"):
+        stripped = line.strip()
+        if stripped == "Memory Device":
+            if current and current.get("Size") != "No Module Installed":
+                devices.append(current)
+            current = {}
+        elif current is not None and ":" in stripped:
+            key, value = stripped.split(":", 1)
+            current[key.strip()] = value.strip()
+    if current and current.get("Size") != "No Module Installed":
+        devices.append(current)
+
+    configured_speed = None
+    if devices:
+        for key in ("Configured Memory Speed", "Speed"):
+            match = re.search(r"(\d+)\s*MT/s", devices[0].get(key, ""))
+            if match:
+                configured_speed = int(match.group(1))
+                break
+
+    return {
+        "installed_dimm_count": len(devices),
+        "devices": devices,
+        "configured_speed_mt_s": configured_speed,
+        "theoretical_bandwidth_gb_s_per_64bit_channel": (
+            configured_speed * 8 / 1000 if configured_speed else None
+        ),
+    }
+
+def parse_os_release(lines):
+    values = {}
+    for line in lines:
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip()] = value.strip().strip('"')
+    return values
+
 def collect_system_info():
     sysinfo = {}
 
@@ -424,9 +466,10 @@ def collect_system_info():
 
     meminfo_lines = run_cmd("cat /proc/meminfo")
     sysinfo["memory"] = parse_key_value_lines(meminfo_lines)
+    sysinfo["memory_hardware"] = collect_memory_hardware()
 
     osrelease_lines = run_cmd("cat /etc/os-release")
-    sysinfo["os"] = parse_key_value_lines(osrelease_lines)
+    sysinfo["os"] = parse_os_release(osrelease_lines)
 
     sysinfo["uname"] = run_cmd("uname -a")
 
